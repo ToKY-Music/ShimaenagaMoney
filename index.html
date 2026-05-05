@@ -172,7 +172,6 @@
         }
         function placeRandom(list, minCount, type) {
             for(let i=0; i<minCount + Math.floor(Math.random()*3); i++) {
-                // ② 全てのオブジェクトでスタート地点近く(約30%)に配置しないように変更
                 let minIdx = Math.floor(platforms.length * 0.3);
                 let platformIndex = minIdx + Math.floor(Math.random() * (platforms.length - 1 - minIdx));
                 let p = platforms[platformIndex];
@@ -255,8 +254,14 @@
         if (nisaTimer >= 300) {
             nisaTimer = 0;
             if (player.nisa > 0) {
-                if (Math.random() < 0.8) { player.nisa = Math.floor(player.nisa * 1.05); showMessage("NISA +5% ↑", "#2196f3"); }
-                else { player.nisa = Math.floor(player.nisa * 0.95); showMessage("NISA -5% ↓", "#ff5252"); }
+                // ① NISAの複利計算ロジック
+                if (Math.random() < 0.8) { 
+                    player.nisa = Math.floor(player.nisa * 1.05); // 現在の総額に5%加算
+                    showMessage("NISA複利成長！ +5% ↑", "#2196f3"); 
+                } else { 
+                    player.nisa = Math.floor(player.nisa * 0.95); // 現在の総額から5%減算
+                    showMessage("NISA価格変動 -5% ↓", "#ff5252"); 
+                }
             }
         }
         if (keys.left) { player.vx = -player.speed; player.facingRight = false; }
@@ -334,7 +339,6 @@
         player.onHospital = onHospitalNow;
         if (goal && isOverlap(player, goal)) {
             gameState = 'clear';
-            // ① （タップでタイトルへ）の文言を「ただいま！」の右に配置
             overlayText.innerHTML = `<span style="color:#2e7d32; font-size: 28px; vertical-align: middle;">ただいま！</span><span style="font-size:14px; color:#777; margin-left: 10px; vertical-align: middle;">(タップでタイトルへ)</span>`;
             overlayText.style.display = 'block';
         }
