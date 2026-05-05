@@ -172,11 +172,9 @@
         }
         function placeRandom(list, minCount, type) {
             for(let i=0; i<minCount + Math.floor(Math.random()*3); i++) {
-                let platformIndex = Math.floor(Math.random() * (platforms.length - 1));
-                if (type === 'enemy') {
-                    let minIdx = Math.floor(platforms.length * 0.3);
-                    platformIndex = minIdx + Math.floor(Math.random() * (platforms.length - minIdx));
-                }
+                // ② 全てのオブジェクトでスタート地点近く(約30%)に配置しないように変更
+                let minIdx = Math.floor(platforms.length * 0.3);
+                let platformIndex = minIdx + Math.floor(Math.random() * (platforms.length - 1 - minIdx));
                 let p = platforms[platformIndex];
                 let rx = p.x + Math.random() * (p.w - 20);
                 if(type === 'apple') list.push({x: rx, y: p.y - 20, w: 12, h: 12, collected: false});
@@ -336,9 +334,8 @@
         player.onHospital = onHospitalNow;
         if (goal && isOverlap(player, goal)) {
             gameState = 'clear';
-            // ② ゴール画面のテキスト位置修正
-            overlayText.innerHTML = `<span style="color:#2e7d32; font-size: 28px;">ただいま！</span><br>
-                <span style="font-size:14px; color:#777; display:block; margin-top:5px;">(タップでタイトルへ)</span>`;
+            // ① （タップでタイトルへ）の文言を「ただいま！」の右に配置
+            overlayText.innerHTML = `<span style="color:#2e7d32; font-size: 28px; vertical-align: middle;">ただいま！</span><span style="font-size:14px; color:#777; margin-left: 10px; vertical-align: middle;">(タップでタイトルへ)</span>`;
             overlayText.style.display = 'block';
         }
         let targetCameraX = player.x - canvas.width / 2.5;
@@ -362,7 +359,6 @@
         ctx.fillStyle = '#333'; ctx.fillRect(e.x + 2, e.y, 12, 3); ctx.fillRect(e.x, e.y + 2, 16, 1);
         ctx.fillStyle = '#000'; let ex = e.facingRight ? e.x + 10 : e.x + 4; ctx.fillRect(ex, e.y + 4, 2, 2);
         
-        // ③ 密猟者の残りライフゲージ
         if (e.hp < e.maxHp) {
             ctx.fillStyle = '#ccc';
             ctx.fillRect(e.x, e.y - 6, 16, 3);
@@ -401,7 +397,6 @@
         if (gameState === 'title') {
             ctx.fillStyle = '#5d4037'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
             ctx.fillText('シマエナガと資本主義の森', canvas.width/2, 60);
-            // ① タイトル画面の注意書き
             ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#d32f2f';
             ctx.fillText('※スマホの画面は横向きに※', canvas.width/2, 90);
             ctx.fillStyle = '#5d4037'; ctx.font = '12px sans-serif';
