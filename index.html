@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=no">
+    <title>シマエナガと資本主義の森</title>
+    <style>
+        body {
+            margin: 0; padding: 0; background-color: #222; overflow: hidden;
+            touch-action: none; -webkit-touch-callout: none; user-select: none;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+        }
+        #game-container {
+            position: relative; width: 100vw; height: 100vh;
+            display: flex; justify-content: center; align-items: center;
+            background-color: #e0f7fa;
+        }
+        canvas {
+            display: block; width: 100%; height: 100%;
+            object-fit: contain; image-rendering: pixelated;
+        }
+        
+        #ui-layer {
+            position: absolute; bottom: 20px; width: 100%; max-width: 800px;
+            height: 80px; pointer-events: none;
+        }
+        .btn {
+            position: absolute; width: 60px; height: 60px;
+            background: rgba(255, 255, 255, 0.7);
+            border: 2px solid rgba(0, 0, 0, 0.3); border-radius: 50%;
+            text-align: center; line-height: 60px; font-size: 24px; font-weight: bold;
+            color: #333; pointer-events: auto;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .btn:active { background: rgba(255, 255, 255, 0.9); }
+        #btn-left { left: 10px; }
+        #btn-right { left: 80px; }
+        #btn-attack { right: 100px; background: rgba(255, 100, 100, 0.8); color: white; width: 70px; border-radius: 20px; font-size: 16px; }
+        #btn-jump { right: 10px; width: 70px; border-radius: 20px; font-size: 16px; }
+        #btn-sell-nisa { 
+            right: 10px; bottom: 85px; 
+            background: rgba(33, 150, 243, 0.8); color: white; 
+            width: 70px; height: 40px; border-radius: 10px; font-size: 12px; line-height: 1.2;
+        }
+
+        #overlay-text {
+            position: absolute; top: 15%; width: 100%; text-align: center;
+            color: #5d4037; font-size: 24px; font-weight: bold;
+            pointer-events: none; text-shadow: 2px 2px 0 #fff; display: none; z-index: 10;
+        }
+
+        #apple-popup {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); z-index: 100;
+            flex-direction: column; justify-content: center; align-items: center; pointer-events: auto;
+        }
+        .popup-box {
+            background: #fff; padding: 20px; border-radius: 10px; text-align: center;
+            border: 4px solid #ff5252; box-shadow: 0 4px 10px rgba(0,0,0,0.3); width: 80%; max-width: 400px;
+        }
+        .popup-box h3 { margin-top: 0; color: #d32f2f; }
+        .popup-btn {
+            display: block; width: 100%; padding: 12px; margin-bottom: 10px;
+            font-size: 16px; font-weight: bold; color: #fff; border: none; border-radius: 5px;
+            cursor: pointer;
+        }
+        .btn-eat { background-color: #ff9800; }
+        .btn-save { background-color: #4caf50; }
+        .btn-nisa { background-color: #2196f3; }
+        .popup-btn:active { opacity: 0.8; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="360" height="200"></canvas>
+    
+    <div id="ui-layer">
+        <div id="btn-left" class="btn">◀</div>
+        <div id="btn-right" class="btn">▶</div>
+        <div id="btn-attack" class="btn">攻撃</div>
+        <div id="btn-jump" class="btn">JUMP</div>
+        <div id="btn-sell-nisa" class="btn">NISAを<br>売却</div>
+    </div>
+
+    <div id="overlay-text"></div>
+
+    <div id="apple-popup">
+        <div class="popup-box">
+            <h3>リンゴを手に入れた！</h3>
+            <p style="font-size: 14px; color: #666; margin-bottom: 15px;">どうする？</p>
+            <button class="popup-btn btn-eat" onclick="chooseApple('eat')">食べる (攻撃を進化)</button>
+            <button class="popup-btn btn-save" onclick="chooseApple('save')">売って預金する (100円)</button>
+            <button class="popup-btn btn-nisa" onclick="chooseApple('nisa')">売ってNISAに入れる (100円)</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const overlayText = document.getElementById('overlay-text');
+    const applePopup = document.getElementById('apple-popup');
+
+    let gameState = 'title'; 
+    let cameraX = 0;
+    let nisaTimer = 0; 
+    
+    const keys = { left: false, right: false, jump: false, attack: false };
+    
+    function setupButton(id, keyName) {
+        const btn = document.getElementById(id);
+        const press = (e) => { e.preventDefault(); keys[keyName] = true; };
+        const release = (e) => { e.preventDefault(); keys[keyName] = false; };
+        btn.addEventListener('touchstart', press, {passive: false});
+        btn.addEventListener('touchend', release, {passive: false});
+        btn.addEventListener('mousedown', press);
+        btn.addEventListener('mouseup', release);
+        btn.addEventListener('mouseleave', release);
+    }
+    setupButton('btn-left', 'left');
+    setupButton('btn-right', 'right');
+    setupButton('btn-jump', 'jump');
+    setupButton('btn-attack', 'attack');
+
+    const sellNisaBtn = document.getElementById('btn-sell-nisa');
+    const handleSellNisa = (e) => {
+        e.preventDefault();
+        if (gameState !== 'play') return;
+        if (player.nisa > 0) {
+            const amount = player.nisa;
+            player.money += amount;
+            player.nisa = 0;
+            showMessage(`NISAを売却: ${amount}円`, "#4caf50");
+        } else {
+            showMessage("NISA残高なし", "#ff5252");
+        }
+    };
+    sellNisaBtn.addEventListener('touchstart', handleSellNisa, {passive: false});
+    sellNisaBtn.addEventListener('mousedown', handleSellNisa);
+
+    window.addEventListener('touchstart', handleScreenTap);
+    window.addEventListener('mousedown', handleScreenTap);
+    function handleScreenTap(e) {
+        if(e.target.closest('.popup-btn') || e.target.closest('.btn')) return; 
+        if(gameState === 'title') { startGame(); }
+        else if(gameState === 'clear' || gameState === 'gameover') { resetGame(); }
+    }
+
+    let player = {};
+    const TILE_SIZE = 16;
+    let platforms = [], apples = [], enemies = [], hospitals = [], goal = null;
+    let playerAttacks = [], enemyBullets = [];
+
+    function generateRandomMap() {
+        platforms = []; apples = []; enemies = []; hospitals = []; goal = null;
+        let curX = 0;
+        const mapWidth = 100; 
+        const groundY = 160;
+        let gapCreated = false;
+        while(curX < mapWidth) {
+            let chunkW = 5 + Math.floor(Math.random() * 8);
+            if (!gapCreated && curX > 30) {
+                platforms.push({x: curX * TILE_SIZE, y: groundY, w: chunkW * TILE_SIZE, h: TILE_SIZE});
+                curX += chunkW + 4; 
+                gapCreated = true;
+            } else {
+                let yPos = (Math.random() < 0.3) ? groundY - 40 : groundY;
+                platforms.push({x: curX * TILE_SIZE, y: yPos, w: chunkW * TILE_SIZE, h: TILE_SIZE});
+                curX += chunkW + (Math.random() < 0.2 ? 2 : 0);
+            }
+        }
+        function placeRandom(list, minCount, type) {
+            for(let i=0; i<minCount + Math.floor(Math.random()*3); i++) {
+                let platformIndex = Math.floor(Math.random() * (platforms.length - 1));
+                if (type === 'enemy') {
+                    let minIdx = Math.floor(platforms.length * 0.3);
+                    platformIndex = minIdx + Math.floor(Math.random() * (platforms.length - minIdx));
+                }
+                let p = platforms[platformIndex];
+                let rx = p.x + Math.random() * (p.w - 20);
+                if(type === 'apple') list.push({x: rx, y: p.y - 20, w: 12, h: 12, collected: false});
+                if(type === 'enemy') list.push({x: rx, y: p.y - 20, w: 16, h: 20, hp: 3, maxHp: 3, cooldown: 60, facingRight: false});
+                if(type === 'hospital') list.push({x: rx, y: p.y - 32, w: 32, h: 32});
+            }
+        }
+        placeRandom(apples, 3, 'apple');
+        placeRandom(enemies, 3, 'enemy');
+        placeRandom(hospitals, 2, 'hospital');
+        let lastP = platforms[platforms.length - 1];
+        goal = {x: lastP.x + lastP.w - 40, y: lastP.y - 16, w: 32, h: 16};
+    }
+
+    function initPlayer() {
+        player = {
+            x: 20, y: 100, width: 14, height: 14,
+            vx: 0, vy: 0, speed: 1.5, jumpForce: 6.5, grounded: false, facingRight: true,
+            bounceTimer: 0, invincible: 0, attackCooldown: 0,
+            hp: 3, maxHp: 3,
+            money: 300, nisa: 0, appleCount: 0, attackLevel: 1,
+            msg: "", msgTimer: 0, onHospital: false
+        };
+        playerAttacks = [];
+        enemyBullets = [];
+        nisaTimer = 0;
+    }
+
+    function startGame() {
+        initPlayer();
+        generateRandomMap();
+        gameState = 'play';
+        overlayText.style.display = 'none';
+        applePopup.style.display = 'none';
+    }
+
+    function resetGame() {
+        gameState = 'title';
+        overlayText.style.display = 'none';
+        applePopup.style.display = 'none';
+    }
+
+    function isOverlap(r1, r2) {
+        return r1.x < r2.x + r2.w && r1.x + (r1.w || r1.width) > r2.x &&
+               r1.y < r2.y + r2.h && r1.y + (r1.h || r1.height) > r2.y;
+    }
+
+    window.chooseApple = function(choice) {
+        if (choice === 'eat') { player.attackLevel++; showMessage("攻撃が強くなった！", '#ff9800'); }
+        else if (choice === 'save') { player.money += 100; showMessage("預金 +100円", '#4caf50'); }
+        else if (choice === 'nisa') { player.nisa += 100; showMessage("NISA +100円", '#2196f3'); }
+        player.appleCount++;
+        applePopup.style.display = 'none';
+        gameState = 'play';
+    };
+
+    function showMessage(text, color) {
+        player.msg = text;
+        player.msgTimer = 90;
+        player.msgColor = color || "#fff";
+    }
+
+    function takeDamage() {
+        if (player.invincible > 0) return;
+        player.hp--;
+        player.invincible = 90; 
+        showMessage("いてっ！", "#ff5252");
+        if (player.hp <= 0) {
+            gameState = 'gameover';
+            overlayText.innerHTML = `GAME OVER<br><span style="font-size:14px; color:#777;">(タップでタイトルへ)</span>`;
+            overlayText.style.display = 'block';
+        }
+    }
+
+    function update() {
+        if (gameState !== 'play') return;
+        nisaTimer++;
+        if (nisaTimer >= 300) {
+            nisaTimer = 0;
+            if (player.nisa > 0) {
+                if (Math.random() < 0.8) { player.nisa = Math.floor(player.nisa * 1.05); showMessage("NISA +5% ↑", "#2196f3"); }
+                else { player.nisa = Math.floor(player.nisa * 0.95); showMessage("NISA -5% ↓", "#ff5252"); }
+            }
+        }
+        if (keys.left) { player.vx = -player.speed; player.facingRight = false; }
+        else if (keys.right) { player.vx = player.speed; player.facingRight = true; }
+        else { player.vx = 0; }
+        player.x += player.vx;
+        if (player.x < 0) player.x = 0;
+        player.vy += 0.25; 
+        player.y += player.vy;
+        let hitGround = false;
+        for (let p of platforms) {
+            if (isOverlap(player, p)) {
+                let previousBottom = (player.y - player.vy) + player.height;
+                if (player.vy > 0 && previousBottom <= p.y + 1) { player.y = p.y - player.height; player.vy = 0; hitGround = true; }
+            }
+        }
+        player.grounded = hitGround;
+        if (keys.jump && player.grounded) { player.vy = -player.jumpForce; player.grounded = false; }
+        if (player.y > canvas.height + 20) { player.vy = -10; player.bounceTimer = 30; takeDamage(); }
+        if (player.bounceTimer > 0) player.bounceTimer--;
+        if (player.invincible > 0) player.invincible--;
+        if (player.msgTimer > 0) player.msgTimer--;
+        if (keys.attack && player.attackCooldown <= 0) {
+            let cost = player.attackLevel === 1 ? 50 : (player.attackLevel === 2 ? 100 : 150);
+            if (player.money >= cost) {
+                player.money -= cost;
+                playerAttacks.push({ x: player.facingRight ? player.x + player.width : player.x - 10, y: player.y + 2, vx: player.facingRight ? 4 : -4, w: 8 + player.attackLevel * 2, h: 8 + player.attackLevel * 2, dmg: player.attackLevel });
+                player.attackCooldown = 30;
+            } else { showMessage("お金が足りない！", "#ff5252"); player.attackCooldown = 30; }
+        }
+        if (player.attackCooldown > 0) player.attackCooldown--;
+        for (let i = playerAttacks.length - 1; i >= 0; i--) {
+            let a = playerAttacks[i]; a.x += a.vx;
+            if (a.x < cameraX - 50 || a.x > cameraX + canvas.width + 50) { playerAttacks.splice(i, 1); continue; }
+            for (let e of enemies) {
+                if (e.hp > 0 && isOverlap(a, e)) {
+                    e.hp -= a.dmg; playerAttacks.splice(i, 1);
+                    if (e.hp <= 0) showMessage("倒した！", "#ffeb3b");
+                    break;
+                }
+            }
+        }
+        for (let e of enemies) {
+            if (e.hp <= 0) continue;
+            e.facingRight = player.x > e.x;
+            if (isOverlap(player, e)) takeDamage();
+            if (e.x > cameraX - 50 && e.x < cameraX + canvas.width + 50) {
+                if (e.cooldown <= 0) {
+                    enemyBullets.push({ x: e.facingRight ? e.x + e.w : e.x - 4, y: e.y + 6, vx: e.facingRight ? 2.5 : -2.5, w: 4, h: 4 });
+                    e.cooldown = 100; 
+                }
+            }
+            if (e.cooldown > 0) e.cooldown--;
+        }
+        for (let i = enemyBullets.length - 1; i >= 0; i--) {
+            let b = enemyBullets[i]; b.x += b.vx;
+            if (b.x < cameraX - 50 || b.x > cameraX + canvas.width + 50) { enemyBullets.splice(i, 1); continue; }
+            if (isOverlap(player, b)) { takeDamage(); enemyBullets.splice(i, 1); }
+        }
+        for (let a of apples) {
+            if (!a.collected && isOverlap(player, a)) { a.collected = true; gameState = 'paused'; applePopup.style.display = 'flex'; keys.left = keys.right = keys.jump = keys.attack = false; }
+        }
+        let onHospitalNow = false;
+        for (let h of hospitals) {
+            if (isOverlap(player, h)) {
+                onHospitalNow = true;
+                if (!player.onHospital) { 
+                    if (player.hp < player.maxHp) {
+                        if (player.money >= 150) { player.money -= 150; player.hp++; showMessage("治療完了！(150円)", "#4caf50"); }
+                        else { showMessage("お金が足りない！", "#ff5252"); }
+                    } else { showMessage("健康です", "#ffffff"); }
+                }
+            }
+        }
+        player.onHospital = onHospitalNow;
+        if (goal && isOverlap(player, goal)) {
+            gameState = 'clear';
+            // ② ゴール画面のテキスト位置修正
+            overlayText.innerHTML = `<span style="color:#2e7d32; font-size: 28px;">ただいま！</span><br>
+                <span style="font-size:14px; color:#777; display:block; margin-top:5px;">(タップでタイトルへ)</span>`;
+            overlayText.style.display = 'block';
+        }
+        let targetCameraX = player.x - canvas.width / 2.5;
+        if (targetCameraX < 0) targetCameraX = 0;
+        cameraX += (targetCameraX - cameraX) * 0.1;
+    }
+
+    function drawApple(x, y) {
+        let floatY = y + Math.sin(Date.now() / 200 + x) * 3;
+        ctx.fillStyle = '#ff1744'; ctx.fillRect(x + 2, floatY + 2, 8, 8); ctx.fillRect(x + 4, floatY, 4, 12); ctx.fillRect(x, floatY + 4, 12, 4);
+        ctx.fillStyle = '#ff8a80'; ctx.fillRect(x + 3, floatY + 3, 2, 2);
+        ctx.fillStyle = '#4e342e'; ctx.fillRect(x + 5, floatY - 2, 2, 3);
+        ctx.fillStyle = '#4caf50'; ctx.fillRect(x + 7, floatY - 2, 2, 2);
+    }
+
+    function drawEnemy(e) {
+        ctx.fillStyle = '#3e2723'; ctx.fillRect(e.x + 2, e.y + 16, 4, 4); ctx.fillRect(e.x + 10, e.y + 16, 4, 4);
+        ctx.fillStyle = '#263238'; ctx.fillRect(e.x + 2, e.y + 10, 12, 8);
+        ctx.fillStyle = '#558b2f'; ctx.fillRect(e.x, e.y + 6, 16, 6);
+        ctx.fillStyle = '#ffe0b2'; ctx.fillRect(e.x + 4, e.y + 2, 8, 6);
+        ctx.fillStyle = '#333'; ctx.fillRect(e.x + 2, e.y, 12, 3); ctx.fillRect(e.x, e.y + 2, 16, 1);
+        ctx.fillStyle = '#000'; let ex = e.facingRight ? e.x + 10 : e.x + 4; ctx.fillRect(ex, e.y + 4, 2, 2);
+        
+        // ③ 密猟者の残りライフゲージ
+        if (e.hp < e.maxHp) {
+            ctx.fillStyle = '#ccc';
+            ctx.fillRect(e.x, e.y - 6, 16, 3);
+            ctx.fillStyle = '#ff5252';
+            ctx.fillRect(e.x, e.y - 6, 16 * (e.hp / e.maxHp), 3);
+        }
+    }
+
+    function drawShimaenaga(x, y, isRight, isJumping, isWalking) {
+        ctx.save(); ctx.translate(x, y);
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(2, 0, 10, 14); ctx.fillRect(0, 2, 14, 10);
+        ctx.fillStyle = '#000000'; let eyeX = isRight ? 8 : 4; ctx.fillRect(eyeX, 4, 2, 2); ctx.fillRect(eyeX + 4, 4, 2, 2);
+        ctx.fillStyle = '#ffb74d'; ctx.fillRect(eyeX + 2, 6, 2, 2);
+        ctx.fillStyle = '#e0e0e0'; let wingY = isJumping ? 4 : (isWalking ? 6 + Math.sin(Date.now() / 100) * 1.5 : 6); let wingX = isRight ? 1 : 11; ctx.fillRect(wingX, wingY, 4, 3);
+        if (player.hp < player.maxHp) { ctx.fillStyle = '#ff5252'; ctx.fillRect(2, 8, 3, 1); ctx.fillStyle = '#fff9c4'; ctx.fillRect(eyeX - 1, 2, 4, 2); }
+        ctx.restore();
+    }
+
+    function drawHomeScene() {
+        ctx.fillStyle = '#ffecb3'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#8d6e63'; ctx.fillRect(0, 150, canvas.width, 50);
+        ctx.fillStyle = '#81d4fa'; ctx.fillRect(40, 30, 60, 50); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(40, 30, 60, 50);
+        ctx.fillStyle = '#a1887f'; ctx.fillRect(200, 120, 100, 10); ctx.fillRect(210, 130, 5, 20); ctx.fillRect(285, 130, 5, 20);
+        ctx.fillStyle = '#ef5350'; ctx.fillRect(40, 110, 80, 40); ctx.fillRect(40, 100, 10, 40);
+        ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(90, 60, 180, 80); ctx.strokeStyle = '#5d4037'; ctx.strokeRect(90, 60, 180, 80);
+        ctx.fillStyle = '#5d4037'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(`🍎 リンゴ: ${player.appleCount} 個`, canvas.width/2, 85);
+        ctx.fillText(`💰 預金: ${player.money} 円`, canvas.width/2, 105);
+        ctx.fillText(`📈 NISA: ${player.nisa} 円`, canvas.width/2, 125);
+        drawShimaenaga(canvas.width/2 - 7, 136, true, false, false);
+    }
+
+    function draw() {
+        if (gameState === 'clear') { drawHomeScene(); return; }
+        ctx.fillStyle = '#e0f7fa'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (gameState === 'title') {
+            ctx.fillStyle = '#5d4037'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('シマエナガと資本主義の森', canvas.width/2, 60);
+            // ① タイトル画面の注意書き
+            ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#d32f2f';
+            ctx.fillText('※スマホの画面は横向きに※', canvas.width/2, 90);
+            ctx.fillStyle = '#5d4037'; ctx.font = '12px sans-serif';
+            ctx.fillText('画面をタップしてスタート', canvas.width/2, 130);
+            drawShimaenaga(canvas.width/2 - 7, 150, true, false, true);
+            return;
+        }
+        ctx.save(); ctx.translate(-cameraX, 0);
+        for (let p of platforms) { ctx.fillStyle = '#c8e6c9'; ctx.fillRect(p.x, p.y, p.w, p.h); ctx.fillStyle = '#a5d6a7'; ctx.fillRect(p.x, p.y, p.w, 4); }
+        for (let h of hospitals) { ctx.fillStyle = '#ffffff'; ctx.fillRect(h.x, h.y, h.w, h.h); ctx.fillStyle = '#f44336'; ctx.fillRect(h.x + 14, h.y + 10, 4, 12); ctx.fillRect(h.x + 10, h.y + 14, 12, 4); }
+        if (goal) { ctx.fillStyle = '#8d6e63'; ctx.fillRect(goal.x, goal.y + 8, goal.w, 8); ctx.fillStyle = '#ffffff'; ctx.fillRect(goal.x + 2, goal.y + 4, goal.w - 4, 6); }
+        for (let a of apples) { if (!a.collected) drawApple(a.x, a.y); }
+        for (let e of enemies) { if (e.hp > 0) drawEnemy(e); }
+        ctx.fillStyle = '#ff9800'; for (let b of enemyBullets) { ctx.fillRect(b.x, b.y, b.w, b.h); }
+        for (let a of playerAttacks) { ctx.fillStyle = a.dmg === 1 ? '#81d4fa' : (a.dmg === 2 ? '#29b6f6' : '#ffca28'); ctx.beginPath(); ctx.arc(a.x + a.w/2, a.y + a.h/2, a.w/2, 0, Math.PI*2); ctx.fill(); }
+        if (player.invincible === 0 || Math.floor(Date.now() / 100) % 2 === 0) { drawShimaenaga(player.x, player.y, player.facingRight, !player.grounded, Math.abs(player.vx) > 0); }
+        if (player.msgTimer > 0) { ctx.fillStyle = player.msgColor; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(player.msg, player.x + player.width/2, player.y - 10); }
+        ctx.restore();
+        ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillRect(0, 0, canvas.width, 25);
+        ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#ff5252';
+        let hpStr = "HP: "; for(let i=0; i<player.maxHp; i++) { hpStr += (i < player.hp) ? "♥" : "♡"; }
+        ctx.fillText(hpStr, 10, 17);
+        ctx.fillStyle = '#333'; ctx.fillText(`預金: ${player.money}円`, 100, 17);
+        ctx.fillStyle = '#1976d2'; ctx.fillText(`NISA: ${player.nisa}円`, 190, 17);
+        ctx.fillStyle = '#ff9800'; ctx.fillText(`Lv.${player.attackLevel}`, 280, 17);
+    }
+
+    function loop() { update(); draw(); requestAnimationFrame(loop); }
+    resetGame();
+    loop();
+
+</script>
+</body>
+</html>
